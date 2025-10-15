@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from .terrain import generate_reference_and_limits
 
@@ -75,8 +76,17 @@ class Mission:
 
     @classmethod
     def from_csv(cls, file_name: str):
-        # You are required to implement this method
-        pass
+        data = pd.read_csv(file_name)
+        required_columns = {"reference", "cave_height", "cave_depth"}
+        if not required_columns.issubset(data.columns):
+            missing = required_columns.difference(data.columns)
+            raise ValueError(f"Missing columns in mission CSV: {', '.join(sorted(missing))}")
+
+        reference = data["reference"].to_numpy(dtype=float)
+        cave_height = data["cave_height"].to_numpy(dtype=float)
+        cave_depth = data["cave_depth"].to_numpy(dtype=float)
+
+        return cls(reference, cave_height, cave_depth)
 
 
 class ClosedLoop:
@@ -93,12 +103,21 @@ class ClosedLoop:
         positions = np.zeros((T, 2))
         actions = np.zeros(T)
         self.plant.reset_state()
+        if hasattr(self.controller, "reset"):
+            self.controller.reset()
 
         for t in range(T):
-            positions[t] = self.plant.get_position()
             observation_t = self.plant.get_depth()
-            # Call your controller here
-            self.plant.transition(actions[t], disturbances[t])
+            reference_t = mission.reference[t]
+
+            if hasattr(self.controller, "compute"):
+                action_t = self.controller.compute(reference_t, observation_t)
+            else:
+                action_t = self.controller(reference_t, observation_t)
+
+            actions[t] = action_t
+            self.plant.transition(action_t, disturbances[t])
+            positions[t] = self.plant.get_position()
 
         return Trajectory(positions)
         
